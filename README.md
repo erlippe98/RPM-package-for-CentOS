@@ -1,1 +1,181 @@
-# RPM-package-for-CentOS
+<h1 align="center">Building RPM Package for RHEL/CentOS</h1>
+
+Building RPM Package Process:
+
+1. Installing the program from source into a temporary directory.
+2. Preparing the environment for building.
+3. Building and final adjustment of the RPM package.
+
+| **Data about the Lab Environment** | **Data about the Program Being Compiled** |
+|------------------------------------|-------------------------------------------|
+| **NAME:** Red Hat Enterprise Linux <br> **VERSION:** 8.7 (Ootpa) <br> **ID_LIKE:** fedora <br> **VERSION_ID:** 8.7 <br> **PRETTY_NAME:** Red Hat Enterprise Linux 8.7 (Ootpa) | Python-3.11.4 <br> Sources: [Python-3.11.4.tgz](https://www.python.org/ftp/python/3.11.4/Python-3.11.4.tgz) <br> This is the fourth maintenance release of Python 3.11. <br> Python 3.11.4 is the newest major release of the Python programming language, and it contains many new features and optimizations. |
+
+## Installation of the program from the source code to a temporary directory
+Download the archive with the program source code from the official website and move it to the home directory of the VM:
+```
+ls -l
+-rw-rw-r--. 1 hoffman-nk hoffman-nk 26526163 Jul 27 20:29 Python-3.11.4.tgz
+```
+
+Let's create a temporary directory *~/tmp:*
+```
+ls -l
+-rw-rw-r--. 1 hoffman-nk hoffman-nk 26526163 Jul 27 20:29 Python-3.11.4.tgz
+drwxrwxr-x. 2 hoffman-nk hoffman-nk 6 Jul 27 20:35 tmp
+```
+Let's install all the necessary tools to compile the program:
+```
+sudo yum install -y make gcc python3-devel
+```
+Let's install all the necessary dependencies for the program to work:
+```
+sudo yum install -y openssl-devel libffi-devel bzip2-devel
+```
+Unpack the previously downloaded archive and install the program in a temporary directory:
+```
+tar -xvf Python-3.11.4.tgz
+cd Python-3.11.4
+./configure --enable-optimizations && make && make install DESTDIR=~/tmp
+```
+Once the program has been successfully installed, you can modify it - for example, as in the case of the python interpreter, update or additionally install packages via pip.
+
+> Before building the python rpm package at this stage, you need to make edits to the ~/tmp/usr/local/bin/pip3.11 executable file for the pip module to work correctly: <br>
+> #!/usr/local/bin/python3.11 <br>
+> -*- coding: utf-8 -*- <br>
+> import re <br>
+> import sys <br>
+> from pip._internal.cli.main import main <br>
+> if __name__ == '__main__': <br>
+> sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0]) <br>
+> sys.exit(main()) <br>
+
+## Preparing the environment for building the package
+Let's install the necessary tools for building:
+```
+sudo yum install -y ./rpmrebuild-2.16-3.el8.noarch.rpm rpmdevtools rpmlint tree
+sudo yum group install -y "Development Tools"
+```
+> *The rpmrebuild-2.16-3.el8.noarch.rpm package was downloaded from an open source and uploaded to the vm home directory*
+
+Let's create an environment for the build:
+```
+rpmdev-setuptree
+cd rpmbuild/
+mkdir -p BUILDROOT/python-3.11.4-3.11.4-stable.x86_64
+```
+As a result, we will get the ~/rpmbuild directory with the following internal structure
+```
+tree
+.
+├── BUILD
+├── BUILDROOT
+│   └── python-3.11.4-3.11.4-stable.x86_64
+├── RPMS
+├── SOURCES
+├── SPECS
+└── SRPMS
+```
+Let's create and prepare a SPEC file:
+```
+vi SPECS/python-3.11.4.spec
+```
+The contents of the SPEC file are as follows:
+```
+Name: python-3.11.4
+Version: 3.11.4
+Release: stable
+Summary: This is the stable release of Python 3.11.0
+License: GPL
+URL: https://www.python.org/ftp/python/3.11.4/Python-3.11.4.tgz
+Requires: openssl-devel >= 1.1.1, libffi-devel bzip2-devel
+%description
+python-3.11.4 made by Andrew
+%files
+%defattr(-,root,root)
+%{_prefix}
+%changelog
+* Thu May 18 2023 Andrew
+```
+Let's check the SPEC file for correctness:
+
+```
+rpmlint ~/rpmbuild/SPECS/python-3.11.4.spec
+```
+Inspection Results:
+```
+/home/hoffman-nk/rpmbuild/SPECS/python-3.11.4.spec: W: no-%prep-section
+/home/hoffman-nk/rpmbuild/SPECS/python-3.11.4.spec: W: no-%build-section
+/home/hoffman-nk/rpmbuild/SPECS/python-3.11.4.spec: W: no-%install-section
+0 packages and 1 specfiles checked; 0 errors, 3 warnings.
+```
+Let's move the contents of the temporary ~/tmp directory to the ~/rpmbuild/BUILDROOT/python-3.11.4-3.11.4-stable.x86_64 directory:
+```
+cp -rv ~/tmp/* ~/rpmbuild/BUILDROOT/python-3.11.4-3.11.4-stable.x86_64/
+```
+## Build and final adjustments to the rpm package
+
+Let's build the package:
+```
+rpmbuild -bb ~/rpmbuild/SPECS/python-3.11.4.spec
+```
+Let's move the package to the home directory and make adjustments to the SPEC file automatically generated during the build process:
+```
+mv ~/rpmbuild/RPMS/x86_64/python-3.11.4-3.11.4-stable.x86_64.rpm ~/python-3.11.4-3.11.4-stable.x86_64_tmp.rpm
+rpmrebuild -enp ~/python-3.11.4-3.11.4-stable.x86_64_tmp.rpm
+```
+To avoid errors when installing a new package later, several lines in the SPEC file should be deleted:
+```
+# rpmrebuild autogenerated specfile
+
+BuildRoot: /home/hoffman-nk/.tmp/rpmrebuild.68368/work/root
+AutoProv: no
+%undefine __find_provides
+AutoReq: no
+%undefine __find_requires
+# Do not try autogenerate prereq/conflicts/obsoletes and check files
+%undefine __check_files
+%undefine __find_prereq
+%undefine __find_conflicts
+%undefine __find_obsoletes
+# Be sure buildpolicy set to do nothing
+%define __spec_install_post %{nil}
+# Something that need for rpm-4.1
+%define _missing_doc_files_terminate_build 0
+#dummy
+#dummy
+#BUILDHOST: rhel.ouvp
+#BUILDTIME: Thu Jul 27 21:43:33 2023
+#SOURCERPM: python-3.11.4-3.11.4-stable.src.rpm
+
+#RPMVERSION: 4.14.3
+
+#OS: linux
+#SIZE: 417771749
+#ARCHIVESIZE: 419630472
+#ARCH: x86_64
+BuildArch: x86_64
+Name: python-3.11.4
+Version: 3.11.4
+Release: stable
+License: GPL
+Group: Unspecified
+Summary: This is the stable release of Python 3.11.0
+
+URL: https://www.python.org/ftp/python/3.11.4/Python-3.11.4.tgz
+
+Provides: python-3.11.4 = 3.11.4-stable
+Provides: python-3.11.4(x86-64) = 3.11.4-stable
+Requires: /bin/bash
+Requires: /bin/sh
+Requires: /home/hoffman-nk/tmp/usr/local/bin/python3.11
+Requires: /usr/bin/env
+Requires: /usr/local/bin/python
+Requires: /usr/local/bin/python3.11
+Requires: bzip2-devel
+Requires: libbz2.so.1()(64bit)
+Requires: libc.so.6()(64bit)
+```
+The final version of the rpm package is located at the path **~/rpmbuild/RPMS/x86_64/python-3.11.4-3.11.4-stable.x86_64.rpm**
+
+
+
